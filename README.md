@@ -1,3 +1,5 @@
+<img src="assets/banner.png" alt="Logo" style="border-radius: 30px; width: 100%;">
+
 ## Context
 - Cactus runs Google DeepMind's FunctionGemma at up to 3000 toks/sec prefill speed on M4 Macs.
 - While decode speed reaches 200 tokens/sec, all without GPU, to remain energy-efficient. 
