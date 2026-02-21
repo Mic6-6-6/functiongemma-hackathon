@@ -13,21 +13,10 @@ def generate_cactus(messages, tools, confidence_threshold=0.7):
     """Run function calling on-device via FunctionGemma + Cactus."""
     model = cactus_init(functiongemma_path)
 
-    cactus_tools = [{
-        "type": "function",
-        "function": t,
-    } for t in tools]
-
     raw_str = cactus_complete(
         model,
-        [{"role": "system", "content": (
-            "Call the best matching tool using values taken directly from the user's message. "
-            "String args: copy the user's exact words. "
-            "Integer args: plain numbers only, never strings (e.g. hour=10, minute=0, minutes=5). "
-            "Times: '6 AM'→hour=6,minute=0; '8:15 AM'→hour=8,minute=15. "
-            "Always include every required argument."
-        )}] + messages,
-        tools=cactus_tools,
+        [{"role": "system", "content": "You are a helpful assistant that can use tools."}] + messages,
+        tools=tools,
         force_tools=True,
         max_tokens=256,
         stop_sequences=["<|im_end|>", "<end_of_turn>"],
