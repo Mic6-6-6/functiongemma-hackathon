@@ -19,11 +19,10 @@ def generate_cactus(messages, tools):
     } for t in tools]
 
     system_prompt = (
-        "You are a device assistant that executes user requests via tool calls. "
-        "For each request, rank all available tools by relevance to the request. "
-        "Count compound connectors (and, then, also, plus) in the request to get N = connector_count + 1. "
-        "Call the top N ranked tools using exact argument values from the user's message. "
-        "No text responses. No questions."
+        "You are a device assistant. Call tools with arguments extracted directly from the user's message — all required information is already there, never ask for it. "
+        "Recognise colloquial intent: 'wake me up' → set_alarm, 'remind me' → create_reminder, 'text/message someone' → send_message. "
+        "For compound requests (and/then/also/plus): rank tools by relevance to each action, then call the top N tools where N = number_of_connectors + 1. "
+        "Arguments must be positive numbers and verbatim strings from the message. No text responses."
     )
 
     raw_str = cactus_complete(
