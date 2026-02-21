@@ -20,7 +20,16 @@ def generate_cactus(messages, tools, confidence_threshold=0.7):
 
     raw_str = cactus_complete(
         model,
-        [{"role": "system", "content": "You are a helpful assistant that can use tools."}] + messages,
+        [{"role": "system", "content": (
+            "You are a helpful assistant that can use tools. "
+            "You run on-device and should handle requests locally whenever possible. "
+            "Only signal cloud handoff when the task is genuinely complex: "
+            "for example, when it requires calling multiple tools at once, "
+            "when the correct tool is ambiguous given the available options, "
+            "or when extracting the right arguments requires multi-step reasoning. "
+            "For simple, direct requests that map clearly to a single tool call, "
+            "always handle them on-device with full confidence."
+        )}] + messages,
         tools=cactus_tools,
         force_tools=True,
         max_tokens=256,
