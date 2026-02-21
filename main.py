@@ -107,20 +107,53 @@ def generate_cloud(messages, tools):
 
 
 def generate_hybrid(messages, tools, confidence_threshold=0.6):
-    """Hybrid routing: let FunctionGemma decide for itself via its built-in cloud_handoff signal."""
+    """
+    Two-phase hybrid routing:
+    Phase 1 — Pre-route: count action connectors in the message.
+               Multi-action queries go straight to cloud; no FunctionGemma cost wasted.
+    Phase 2 — Post-validate: for single-action queries, run FunctionGemma and check
+               the output is structurally correct (valid tool name + all required args
+               present and non-empty). Deterministic, no probability involved.
+    """
 
-    # Run FunctionGemma — it self-assesses confidence against the threshold
-    # and sets cloud_handoff=True when it doesn't trust its own output
+    # --- Phase 1: pre-routing by estimated action count ---
+    user_text = " ".join(m["content"] for m in messages if m["role"] == "user").lower()
+
+    compound_connectors = [" and ", ", and ", " then ", " also ", " as well ", " plus "]
+    estimated_actions = 1 + sum(user_text.count(kw) for kw in compound_connectors)
+
+    if estimated_actions >= 2:
+        # Multi-action: FunctionGemma 270M can't reliably produce multiple calls.
+        # Skip it entirely — go straight to cloud with no wasted inference.
+        cloud = generate_cloud(messages, tools)
+        cloud["source"] = "cloud (pre-routed: multi-action)"
+        return cloud
+
+    # --- Phase 2: single-action — run on-device, validate output structure ---
     local = generate_cactus(messages, tools, confidence_threshold=confidence_threshold)
+    function_calls = local.get("function_calls", [])
 
-    if not local["cloud_handoff"]:
+    tool_map = {t["name"]: t["parameters"].get("required", []) for t in tools}
+    valid_tool_names = set(tool_map.keys())
+
+    def _is_valid_call(call):
+        name = call.get("name", "")
+        if name not in valid_tool_names:
+            return False  # hallucinated or wrong tool name
+        args = call.get("arguments", {})
+        # Every required arg must be present and non-empty
+        return all(r in args and args[r] not in (None, "", []) for r in tool_map[name])
+
+    structurally_valid = len(function_calls) > 0 and all(_is_valid_call(c) for c in function_calls)
+
+    if structurally_valid:
         local["source"] = "on-device"
         return local
 
-    # Model asked to hand off — fall back to Gemini cloud
+    # Structural check failed — fall back to cloud
     cloud = generate_cloud(messages, tools)
-    cloud["source"] = "cloud (fallback)"
-    cloud["local_confidence"] = local["confidence"]
+    cloud["source"] = "cloud (fallback: invalid output)"
+    cloud["local_confidence"] = local.get("confidence", 0)
     cloud["total_time_ms"] += local["total_time_ms"]
     return cloud
 
