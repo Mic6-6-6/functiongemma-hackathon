@@ -9,37 +9,41 @@ from google import genai
 from google.genai import types
 
 
-def generate_cactus(messages, tools, confidence_threshold=0.7):
+def generate_cactus(messages, tools):
     """Run function calling on-device via FunctionGemma + Cactus."""
     model = cactus_init(functiongemma_path)
+
+    cactus_tools = [{
+        "type": "function",
+        "function": t,
+    } for t in tools]
 
     raw_str = cactus_complete(
         model,
         [{"role": "system", "content": "You are a helpful assistant that can use tools."}] + messages,
-        tools=tools,
+        tools=cactus_tools,
         force_tools=True,
         max_tokens=256,
         stop_sequences=["<|im_end|>", "<end_of_turn>"],
-        confidence_threshold=confidence_threshold,
     )
 
     cactus_destroy(model)
 
-    # cactus_complete returns a dict, not a JSON string
-    if isinstance(raw_str, str):
-        try:
-            raw = json.loads(raw_str)
-        except (json.JSONDecodeError, ValueError):
-            raw = {}
-    else:
-        raw = raw_str
+    try:
+        raw = json.loads(raw_str)
+    except json.JSONDecodeError:
+        return {
+            "function_calls": [],
+            "total_time_ms": 0,
+            "confidence": 0,
+        }
 
     return {
         "function_calls": raw.get("function_calls", []),
         "total_time_ms": raw.get("total_time_ms", 0),
         "confidence": raw.get("confidence", 0),
-        "cloud_handoff": raw.get("cloud_handoff", False),
     }
+
 
 
 def generate_cloud(messages, tools):
@@ -93,17 +97,14 @@ def generate_cloud(messages, tools):
 
 def generate_hybrid(messages, tools, confidence_threshold=0.6):
     """
-    Formula-based hybrid routing.
+    Output-focused hybrid routing.
 
-    Runs FunctionGemma unconditionally (confidence_threshold=0 disables its built-in
-    early-exit so we always get a full output to evaluate). Then computes an
-    overall_confidence from five weighted components:
+    Runs FunctionGemma unconditionally then scores the output with four components:
 
-        overall_confidence = 0.40 * raw_conf          # model's own score
-                           + 0.20 * simplicity        # penalise compound queries
-                           + 0.15 * tool_clarity      # penalise large tool sets
-                           + 0.15 * call_completeness # got enough calls for the query
-                           + 0.10 * arg_validity      # all required args present & non-empty
+        overall_confidence = 0.40 * raw_conf        # model generation certainty
+                           + 0.30 * arg_validity    # fraction of calls with all required args filled
+                           + 0.20 * arg_coverage    # fraction of string arg values found in user message
+                           + 0.10 * call_completeness # enough calls for estimated actions
 
     Falls back to cloud if overall_confidence < confidence_threshold.
     """
@@ -113,14 +114,13 @@ def generate_hybrid(messages, tools, confidence_threshold=0.6):
     compound_connectors = [" and ", ", and ", " then ", " also ", " as well ", " plus "]
     compound_count = sum(user_text.count(kw) for kw in compound_connectors)
     estimated_actions = 1 + compound_count
-    tool_count = len(tools)
 
-    # --- Run FunctionGemma — low threshold so easy/medium tasks always generate ---
-    local = generate_cactus(messages, tools, confidence_threshold=0.3)
+    # --- Run FunctionGemma ---
+    local = generate_cactus(messages, tools)
     raw_conf = local.get("confidence", 0.0)
     function_calls = local.get("function_calls", [])
 
-    # --- Structural arg check ---
+    # --- Per-call checks ---
     tool_map = {t["name"]: t["parameters"].get("required", []) for t in tools}
     valid_tool_names = set(tool_map.keys())
 
@@ -131,7 +131,12 @@ def generate_hybrid(messages, tools, confidence_threshold=0.6):
         args = call.get("arguments", {})
         return all(r in args and args[r] not in (None, "", []) for r in tool_map[name])
 
-    all_args_valid = len(function_calls) > 0 and all(_valid_call(c) for c in function_calls)
+    def _arg_coverage(call):
+        """Fraction of string arg values that appear verbatim in the user's message."""
+        string_vals = [v.lower() for v in call.get("arguments", {}).values() if isinstance(v, str) and v]
+        if not string_vals:
+            return 1.0
+        return sum(1 for v in string_vals if v in user_text) / len(string_vals)
 
     # Hard rule: no function calls at all → always fall back, skip formula
     if not function_calls:
@@ -141,33 +146,23 @@ def generate_hybrid(messages, tools, confidence_threshold=0.6):
         cloud["total_time_ms"] += local["total_time_ms"]
         return cloud
 
-    # --- Five-component confidence formula ---
+    # --- Four-component confidence formula ---
 
-    # 1. Raw model confidence (strongest direct signal)
-    w_raw = 0.40
+    # 1. Raw model confidence: per-token generation certainty
+    # 2. Arg validity: soft per-call fraction (not binary — one bad call shouldn't tank everything)
+    arg_validity = sum(1 for c in function_calls if _valid_call(c)) / len(function_calls)
 
-    # 2. Query simplicity: each compound connector halves the simplicity
-    simplicity = max(0.0, 1.0 - compound_count * 0.5)
-    w_simplicity = 0.20
+    # 3. Arg coverage: string arg values extracted from user input, not hallucinated
+    arg_coverage = sum(_arg_coverage(c) for c in function_calls) / len(function_calls)
 
-    # 3. Tool clarity: more tools = more selection ambiguity
-    tool_clarity = 1.0 / (1.0 + 0.2 * max(0, tool_count - 1))
-    w_tool_clarity = 0.15
-
-    # 4. Call completeness: returned calls vs estimated actions needed
+    # 4. Call completeness: got enough calls for the estimated number of actions
     call_completeness = min(1.0, len(function_calls) / max(1, estimated_actions))
-    w_call_completeness = 0.15
-
-    # 5. Argument validity: binary — all required args present and non-empty
-    arg_validity = 1.0 if all_args_valid else 0.0
-    w_arg_validity = 0.10
 
     overall_confidence = (
-        w_raw             * raw_conf         +
-        w_simplicity      * simplicity        +
-        w_tool_clarity    * tool_clarity      +
-        w_call_completeness * call_completeness +
-        w_arg_validity    * arg_validity
+        0.40 * raw_conf        +
+        0.30 * arg_validity    +
+        0.20 * arg_coverage    +
+        0.10 * call_completeness
     )
     overall_confidence = max(0.0, min(1.0, overall_confidence))
 
