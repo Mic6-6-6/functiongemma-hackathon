@@ -25,15 +25,14 @@ def generate_cactus(messages, tools, confidence_threshold=0.7):
 
     cactus_destroy(model)
 
-    try:
-        raw = json.loads(raw_str)
-    except json.JSONDecodeError:
-        return {
-            "function_calls": [],
-            "total_time_ms": 0,
-            "confidence": 0,
-            "cloud_handoff": True,
-        }
+    # cactus_complete returns a dict, not a JSON string
+    if isinstance(raw_str, str):
+        try:
+            raw = json.loads(raw_str)
+        except (json.JSONDecodeError, ValueError):
+            raw = {}
+    else:
+        raw = raw_str
 
     return {
         "function_calls": raw.get("function_calls", []),

@@ -1,11 +1,9 @@
 
 import sys
-from main import generate_cactus
 sys.path.insert(0, "cactus/python/src")
-functiongemma_path = "cactus/weights/functiongemma-270m-it"
 
 import json
-from cactus import cactus_init, cactus_complete, cactus_destroy
+from main import generate_cactus
 
 
 TOOL_GET_WEATHER = {
@@ -76,33 +74,18 @@ CASES = [
 
 
 def run_case(case):
-    model = cactus_init(functiongemma_path)
-
-    raw_str = generate_cactus(
-        [{"role": "system", "content": "You are a helpful assistant that can use tools."}] + case["messages"],
-        case["tools"],
-        confidence_threshold=0.7,
-    )
-
-    cactus_destroy(model)
+    result = generate_cactus(case["messages"], case["tools"])
 
     print(f"\n{'='*60}")
     print(f"  {case['label']}")
     print(f"{'='*60}")
-    print(f"  User   : {case['messages'][0]['content']}")
-    print(f"  Tools  : {[t['name'] for t in case['tools']]}")
-    print(f"\n--- Raw output from cactus_complete ---")
-    print(raw_str)
-
-    try:
-        parsed = json.loads(raw_str)
-        print(f"\n--- Parsed fields ---")
-        print(f"  confidence    : {parsed.get('confidence')}")
-        print(f"  cloud_handoff : {parsed.get('cloud_handoff')}")
-        print(f"  function_calls: {json.dumps(parsed.get('function_calls', []), indent=4)}")
-    except json.JSONDecodeError as e:
-        print(f"\n  [JSON parse error: {e}]")
-
+    print(f"  User          : {case['messages'][0]['content']}")
+    print(f"  Tools         : {[t['name'] for t in case['tools']]}")
+    print(f"\n--- generate_cactus output ---")
+    print(f"  confidence    : {result.get('confidence')}")
+    print(f"  cloud_handoff : {result.get('cloud_handoff')}")
+    print(f"  total_time_ms : {result.get('total_time_ms')}")
+    print(f"  function_calls: {json.dumps(result.get('function_calls', []), indent=4)}")
     print(f"\n--- Expected ---")
     print(f"  {json.dumps(case['expected'], indent=4)}")
 
