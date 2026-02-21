@@ -22,7 +22,7 @@ def generate_cactus(messages, tools):
         "You are a device assistant. Call tools with arguments extracted directly from the user's message — all required information is already there, never ask for it. "
         "Recognise colloquial intent: 'wake me up' → set_alarm, 'remind me' → create_reminder, 'text/message someone' → send_message. "
         "For compound requests (and/then/also/plus): rank tools by relevance to each action, then call the top N tools where N = number_of_connectors + 1. "
-        "Arguments must be positive numbers and verbatim strings from the message. No text responses."
+        "Numeric arguments are always positive and extracted from the message (e.g. '5 minute timer' → minutes: 5, never -5). No text responses."
     )
 
     raw_str = cactus_complete(
@@ -109,31 +109,29 @@ def generate_cloud(messages, tools):
 
 def generate_hybrid(messages, tools, confidence_threshold=0.6):
     """
-    Output-focused hybrid routing.
+    Two-step agent routing:
 
-    Runs FunctionGemma unconditionally then scores the output with four components:
-
+    Step 1 — Triage: Run FunctionGemma, coerce types, and score the output with:
         overall_confidence = 0.40 * raw_conf        # model generation certainty
                            + 0.30 * arg_validity    # fraction of calls with all required args filled
                            + 0.20 * arg_coverage    # fraction of string arg values found in user message
                            + 0.10 * call_completeness # enough calls for estimated actions
+    Decision: keep on-device if overall_confidence >= threshold, else fall back.
 
-    Falls back to cloud if overall_confidence < confidence_threshold.
+    Step 2 — Route: return on-device result, or hand off to cloud.
     """
 
-    # --- Query analysis ---
     user_text = " ".join(m["content"] for m in messages if m["role"] == "user").lower()
     compound_connectors = [" and ", ", and ", " then ", " also ", " as well ", " plus "]
     compound_count = sum(user_text.count(kw) for kw in compound_connectors)
     estimated_actions = 1 + compound_count
 
-    # --- Run FunctionGemma ---
+    # ── Step 1: Triage ────────────────────────────────────────────────────────
+
     local = generate_cactus(messages, tools)
     raw_conf = local.get("confidence", 0.0)
 
-    # --- Type coercion: enforce declared parameter types ---
-    # The model often returns numeric args as strings (e.g. minutes="5" instead of 5).
-    # The benchmark _normalize doesn't coerce types, so "5" != 5 → F1=0 without this.
+    # Coerce numeric argument types (model often returns "5" instead of 5)
     tool_props = {t["name"]: t["parameters"].get("properties", {}) for t in tools}
 
     def _coerce(call):
@@ -158,7 +156,6 @@ def generate_hybrid(messages, tools, confidence_threshold=0.6):
     function_calls = [_coerce(c) for c in local.get("function_calls", [])]
     local["function_calls"] = function_calls
 
-    # --- Per-call checks ---
     tool_map = {t["name"]: t["parameters"].get("required", []) for t in tools}
     valid_tool_names = set(tool_map.keys())
 
@@ -170,49 +167,38 @@ def generate_hybrid(messages, tools, confidence_threshold=0.6):
         return all(r in args and args[r] not in (None, "", []) for r in tool_map[name])
 
     def _arg_coverage(call):
-        """Fraction of string arg values that appear verbatim in the user's message."""
         string_vals = [v.lower() for v in call.get("arguments", {}).values() if isinstance(v, str) and v]
         if not string_vals:
             return 1.0
         return sum(1 for v in string_vals if v in user_text) / len(string_vals)
 
-    # Hard rule: no function calls at all → always fall back, skip formula
     if not function_calls:
-        cloud = generate_cloud(messages, tools)
-        cloud["source"] = "cloud (fallback: no calls)"
-        cloud["local_confidence"] = raw_conf
-        cloud["total_time_ms"] += local["total_time_ms"]
-        return cloud
-
-    # --- Four-component confidence formula ---
-
-    # 1. Raw model confidence: per-token generation certainty
-    # 2. Arg validity: soft per-call fraction (not binary — one bad call shouldn't tank everything)
-    arg_validity = sum(1 for c in function_calls if _valid_call(c)) / len(function_calls)
-
-    # 3. Arg coverage: string arg values extracted from user input, not hallucinated
-    arg_coverage = sum(_arg_coverage(c) for c in function_calls) / len(function_calls)
-
-    # 4. Call completeness: got enough calls for the estimated number of actions
-    call_completeness = min(1.0, len(function_calls) / max(1, estimated_actions))
-
-    overall_confidence = (
-        0.40 * raw_conf        +
-        0.30 * arg_validity    +
-        0.20 * arg_coverage    +
-        0.10 * call_completeness
-    )
-    overall_confidence = max(0.0, min(1.0, overall_confidence))
+        triage = "cloud"
+        reason = "no calls"
+        overall_confidence = 0.0
+    else:
+        arg_validity     = sum(1 for c in function_calls if _valid_call(c)) / len(function_calls)
+        arg_coverage     = sum(_arg_coverage(c) for c in function_calls) / len(function_calls)
+        call_completeness = min(1.0, len(function_calls) / max(1, estimated_actions))
+        overall_confidence = max(0.0, min(1.0,
+            0.40 * raw_conf         +
+            0.30 * arg_validity     +
+            0.20 * arg_coverage     +
+            0.10 * call_completeness
+        ))
+        triage = "on-device" if overall_confidence >= confidence_threshold else "cloud"
+        reason = "low confidence" if triage == "cloud" else None
 
     local["overall_confidence"] = overall_confidence
 
-    if overall_confidence >= confidence_threshold:
+    # ── Step 2: Route ─────────────────────────────────────────────────────────
+
+    if triage == "on-device":
         local["source"] = "on-device"
         return local
 
-    # Overall confidence too low — fall back to cloud
     cloud = generate_cloud(messages, tools)
-    cloud["source"] = "cloud (fallback)"
+    cloud["source"] = f"cloud (fallback: {reason})"
     cloud["local_confidence"] = raw_conf
     cloud["overall_confidence"] = overall_confidence
     cloud["total_time_ms"] += local["total_time_ms"]
