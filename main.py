@@ -15,7 +15,7 @@ def generate_cactus(messages, tools, confidence_threshold=0.7):
 
     raw_str = cactus_complete(
         model,
-        [{"role": "system", "content": "You are a helpful assistant that can use tools."}] + messages,
+        messages,
         tools=tools,
         force_tools=True,
         max_tokens=512,
@@ -40,6 +40,8 @@ def generate_cactus(messages, tools, confidence_threshold=0.7):
         "total_time_ms": raw.get("total_time_ms", 0),
         "confidence": raw.get("confidence", 0),
         "cloud_handoff": raw.get("cloud_handoff", False),
+        "response": raw.get("response"),
+        "error": raw.get("error"),
     }
 
 
