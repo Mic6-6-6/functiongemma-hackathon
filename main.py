@@ -95,17 +95,54 @@ def generate_cloud(messages, tools):
 
 
 def generate_hybrid(messages, tools, confidence_threshold=0.6):
-    """Baseline hybrid inference strategy; fall back to cloud if Cactus Confidence is below threshold."""
+    """Multi-signal hybrid routing: run FunctionGemma first, validate result, fall back to cloud if needed."""
+
+    # --- Estimate query complexity from user message ---
+    user_text = " ".join(m["content"] for m in messages if m["role"] == "user").lower()
+    compound_keywords = [" and ", " also ", " then ", " plus ", " as well ", " additionally "]
+    compound_count = sum(user_text.count(kw) for kw in compound_keywords)
+    estimated_actions = 1 + compound_count
+    num_tools = len(tools)
+
+    # --- Dynamic confidence threshold: stricter for more tools and compound queries ---
+    tool_penalty = max(0, num_tools - 1) * 0.02
+    compound_penalty = compound_count * 0.05
+    dynamic_threshold = min(0.88, confidence_threshold + tool_penalty + compound_penalty)
+
+    # --- Run FunctionGemma on-device ---
     local = generate_cactus(messages, tools)
-    if not local["fallback"]:
+    confidence = local.get("confidence", 0)
+    function_calls = local.get("function_calls", [])
+
+    # Signal 1: confidence below dynamic threshold
+    low_confidence = confidence < dynamic_threshold
+
+    # Signal 2: no function calls returned at all
+    no_calls = len(function_calls) == 0
+
+    # Signal 3: any call is missing required arguments
+    tool_map = {t["name"]: t for t in tools}
+    def _valid_args(call):
+        tool = tool_map.get(call.get("name", ""))
+        if not tool:
+            return False
+        required = tool["parameters"].get("required", [])
+        args = call.get("arguments", {})
+        return all(r in args for r in required)
+    bad_args = any(not _valid_args(c) for c in function_calls)
+
+    # Signal 4: compound query but fewer calls returned than expected
+    insufficient_calls = (estimated_actions >= 2) and (len(function_calls) < estimated_actions)
+
+    # Stay on-device if all signals pass
+    if not low_confidence and not no_calls and not bad_args and not insufficient_calls:
         local["source"] = "on-device"
         return local
 
-        
-
+    # Fall back to cloud
     cloud = generate_cloud(messages, tools)
     cloud["source"] = "cloud (fallback)"
-    cloud["local_confidence"] = local["confidence"]
+    cloud["local_confidence"] = confidence
     cloud["total_time_ms"] += local["total_time_ms"]
     return cloud
 
