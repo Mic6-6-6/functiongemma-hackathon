@@ -117,7 +117,33 @@ def generate_hybrid(messages, tools, confidence_threshold=0.6):
     # --- Run FunctionGemma ---
     local = generate_cactus(messages, tools, confidence_threshold=0.3)
     raw_conf = local.get("confidence", 0.0)
-    function_calls = local.get("function_calls", [])
+
+    # --- Type coercion: enforce declared parameter types ---
+    # The model often returns numeric args as strings (e.g. minutes="5" instead of 5).
+    # The benchmark _normalize doesn't coerce types, so "5" != 5 → F1=0 without this.
+    tool_props = {t["name"]: t["parameters"].get("properties", {}) for t in tools}
+
+    def _coerce(call):
+        name = call.get("name", "")
+        args = dict(call.get("arguments", {}))
+        for key, schema in tool_props.get(name, {}).items():
+            if key not in args:
+                continue
+            val, typ = args[key], schema.get("type", "string")
+            if typ == "integer" and not isinstance(val, int):
+                try:
+                    args[key] = int(val)
+                except (ValueError, TypeError):
+                    pass
+            elif typ == "number" and not isinstance(val, (int, float)):
+                try:
+                    args[key] = float(val)
+                except (ValueError, TypeError):
+                    pass
+        return {**call, "arguments": args}
+
+    function_calls = [_coerce(c) for c in local.get("function_calls", [])]
+    local["function_calls"] = function_calls
 
     # --- Per-call checks ---
     tool_map = {t["name"]: t["parameters"].get("required", []) for t in tools}

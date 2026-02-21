@@ -1,4 +1,3 @@
-
 import sys
 sys.path.insert(0, "cactus/python/src")
 
@@ -8,7 +7,7 @@ from benchmark import BENCHMARKS
 
 
 def run_case(case):
-    result = generate_cactus(case["messages"], case["tools"], confidence_threshold=0.0)
+    result = generate_cactus(case["messages"], case["tools"])
 
     print(f"\n{'='*60}")
     print(f"  [{case['difficulty'].upper()}] {case['name']}")
@@ -23,8 +22,8 @@ def run_case(case):
         print(f"  Raw response: {result.get('response') or result.get('error')}")
 
 
-if __name__ == "__main__":
-    total = len(BENCHMARKS)
-    for i, case in enumerate(BENCHMARKS, 1):
-        print(f"\n[{i}/{total}]", end="")
-        run_case(case)
+
+total = len(BENCHMARKS)
+for i, case in enumerate(BENCHMARKS, 1):
+    print(f"\n[{i}/{total}]", end="")
+    run_case(case)
