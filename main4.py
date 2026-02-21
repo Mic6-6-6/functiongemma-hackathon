@@ -74,7 +74,7 @@ CASES = [
 
 
 def run_case(case):
-    result = generate_cactus(case["messages"], case["tools"])
+    result = generate_cactus(case["messages"], case["tools"], confidence_threshold=0.0)
 
     print(f"\n{'='*60}")
     print(f"  {case['label']}")

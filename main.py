@@ -15,7 +15,7 @@ def generate_cactus(messages, tools, confidence_threshold=0.7):
 
     raw_str = cactus_complete(
         model,
-        json.dumps([{"role": "system", "content": "You are a helpful assistant that can use tools."}] + messages),
+        [{"role": "system", "content": "You are a helpful assistant that can use tools."}] + messages,
         tools=tools,
         force_tools=True,
         max_tokens=256,
@@ -115,8 +115,8 @@ def generate_hybrid(messages, tools, confidence_threshold=0.6):
     estimated_actions = 1 + compound_count
     tool_count = len(tools)
 
-    # --- Run FunctionGemma — disable built-in handoff so we always get a full output ---
-    local = generate_cactus(messages, tools, confidence_threshold=0.0)
+    # --- Run FunctionGemma — low threshold so easy/medium tasks always generate ---
+    local = generate_cactus(messages, tools, confidence_threshold=0.3)
     raw_conf = local.get("confidence", 0.0)
     function_calls = local.get("function_calls", [])
 
