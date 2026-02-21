@@ -18,9 +18,25 @@ def generate_cactus(messages, tools, confidence_threshold=0.7):
         "function": t,
     } for t in tools]
 
+    system_prompt = (
+        "You are a precise function-calling assistant. "
+        "Your only job is to choose the correct tool and extract its arguments from the user's message.\n\n"
+        "RULES:\n"
+        "1. Pick the tool whose purpose best matches what the user is asking for.\n"
+        "2. Copy string argument values VERBATIM from the user's message — do not shorten, paraphrase, or invent. "
+        "   Example: if the user says 'San Francisco', use 'San Francisco', not 'SF'.\n"
+        "3. For message/content args, copy the user's exact words (e.g. message='good morning', not 'Good Morning!').\n"
+        "4. For integer arguments output a plain integer, never a string. "
+        "   Example: hour=10, minute=0, minutes=5.\n"
+        "5. When parsing times: 'X AM/PM' means hour=X, minute=0. "
+        "   'X:YY AM/PM' means hour=X, minute=YY. Always include BOTH hour and minute.\n"
+        "6. Always include EVERY required argument — never omit one even if it seems obvious.\n"
+        "7. Do not add any explanation — respond only with the tool call."
+    )
+
     raw_str = cactus_complete(
         model,
-        [{"role": "system", "content": "You are a helpful assistant that can use tools."}] + messages,
+        [{"role": "system", "content": system_prompt}] + messages,
         tools=cactus_tools,
         force_tools=True,
         max_tokens=256,
