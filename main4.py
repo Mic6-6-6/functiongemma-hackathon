@@ -1,5 +1,6 @@
 
 import sys
+from main import generate_cactus
 sys.path.insert(0, "cactus/python/src")
 functiongemma_path = "cactus/weights/functiongemma-270m-it"
 
@@ -77,14 +78,10 @@ CASES = [
 def run_case(case):
     model = cactus_init(functiongemma_path)
 
-    raw_str = cactus_complete(
-        model,
+    raw_str = generate_cactus(
         [{"role": "system", "content": "You are a helpful assistant that can use tools."}] + case["messages"],
-        tools=case["tools"],
-        force_tools=True,
-        max_tokens=256,
-        stop_sequences=["<|im_end|>", "<end_of_turn>"],
-        confidence_threshold=0.0,
+        case["tools"],
+        confidence_threshold=0.7,
     )
 
     cactus_destroy(model)

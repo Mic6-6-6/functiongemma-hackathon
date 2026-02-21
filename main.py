@@ -15,11 +15,7 @@ def generate_cactus(messages, tools, confidence_threshold=0.7):
 
     raw_str = cactus_complete(
         model,
-        [{"role": "system", "content": (
-            "You are a helpful assistant that can use tools. "
-            "Always respond with a tool call. "
-            "Use plain integers for numeric params (hour=10, minute=0, minutes=5), never strings."
-        )}] + messages,
+        [{"role": "system", "content": "You are a helpful assistant that can use tools."}] + messages,
         tools=tools,
         force_tools=True,
         max_tokens=256,
