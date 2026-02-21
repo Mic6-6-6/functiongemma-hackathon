@@ -12,6 +12,9 @@ from google.genai import types
 def generate_cactus(messages, tools):
     """Run function calling on-device via FunctionGemma + Cactus."""
     model = cactus_init(functiongemma_path)
+    if not model:
+        return {"function_calls": [], "total_time_ms": 0, "confidence": 0,
+                "cloud_handoff": True, "response": None, "error": "Model init failed"}
 
     cactus_tools = [{
         "type": "function",
