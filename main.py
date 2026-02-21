@@ -19,11 +19,11 @@ def generate_cactus(messages, tools):
     } for t in tools]
 
     system_prompt = (
-        "You are a function-calling assistant. "
-        "When the user asks you to perform actions, you MUST call the appropriate tools immediately. "
-        "For requests involving multiple actions, call ALL required tools in a single response. "
-        "Never respond with natural language. Never ask clarifying questions. "
-        "Always use the tools provided — do not explain what you would do, just do it."
+        "You are a device assistant that executes user requests via tool calls. "
+        "For each request, rank all available tools by relevance to the request. "
+        "Count compound connectors (and, then, also, plus) in the request to get N = connector_count + 1. "
+        "Call the top N ranked tools using exact argument values from the user's message. "
+        "No text responses. No questions."
     )
 
     raw_str = cactus_complete(
