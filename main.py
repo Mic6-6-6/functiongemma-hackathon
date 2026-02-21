@@ -15,7 +15,7 @@ def generate_cactus(messages, tools, confidence_threshold=0.7):
 
     raw_str = cactus_complete(
         model,
-        [{"role": "system", "content": "You are a helpful assistant that can use tools."}] + messages,
+        json.dumps([{"role": "system", "content": "You are a helpful assistant that can use tools."}] + messages),
         tools=tools,
         force_tools=True,
         max_tokens=256,
