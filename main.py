@@ -9,31 +9,35 @@ from google import genai
 from google.genai import types
 
 
-def generate_cactus(messages, tools, confidence_threshold=0.7):
+def generate_cactus(messages, tools):
     """Run function calling on-device via FunctionGemma + Cactus."""
     model = cactus_init(functiongemma_path)
 
+    cactus_tools = [{
+        "type": "function",
+        "function": t,
+    } for t in tools]
+
     raw_str = cactus_complete(
         model,
-        messages,
-        tools=tools,
+        [{"role": "system", "content": "You are a helpful assistant that can use tools."}] + messages,
+        tools=cactus_tools,
         force_tools=True,
         max_tokens=512,
         stop_sequences=["<|im_end|>", "<end_of_turn>"],
-        confidence_threshold=confidence_threshold,
         tool_rag_top_k=0,
     )
 
     cactus_destroy(model)
 
-    # cactus_complete returns a dict, not a JSON string
-    if isinstance(raw_str, str):
-        try:
-            raw = json.loads(raw_str)
-        except (json.JSONDecodeError, ValueError):
-            raw = {}
-    else:
-        raw = raw_str
+    try:
+        raw = json.loads(raw_str)
+    except json.JSONDecodeError:
+        return {
+            "function_calls": [],
+            "total_time_ms": 0,
+            "confidence": 0,
+        }
 
     return {
         "function_calls": raw.get("function_calls", []),
@@ -43,6 +47,7 @@ def generate_cactus(messages, tools, confidence_threshold=0.7):
         "response": raw.get("response"),
         "error": raw.get("error"),
     }
+
 
 
 def generate_cloud(messages, tools):
@@ -115,7 +120,7 @@ def generate_hybrid(messages, tools, confidence_threshold=0.6):
     estimated_actions = 1 + compound_count
 
     # --- Run FunctionGemma ---
-    local = generate_cactus(messages, tools, confidence_threshold=0.3)
+    local = generate_cactus(messages, tools)
     raw_conf = local.get("confidence", 0.0)
 
     # --- Type coercion: enforce declared parameter types ---
