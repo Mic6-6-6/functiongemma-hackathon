@@ -15,7 +15,11 @@ def generate_cactus(messages, tools, confidence_threshold=0.7):
 
     raw_str = cactus_complete(
         model,
-        [{"role": "system", "content": "You are a helpful assistant that can use tools."}] + messages,
+        [{"role": "system", "content": (
+            "You are a helpful assistant that can use tools. "
+            "Always respond with a tool call. "
+            "Use plain integers for numeric params (hour=10, minute=0, minutes=5), never strings."
+        )}] + messages,
         tools=tools,
         force_tools=True,
         max_tokens=256,
@@ -133,6 +137,14 @@ def generate_hybrid(messages, tools, confidence_threshold=0.6):
         return all(r in args and args[r] not in (None, "", []) for r in tool_map[name])
 
     all_args_valid = len(function_calls) > 0 and all(_valid_call(c) for c in function_calls)
+
+    # Hard rule: no function calls at all → always fall back, skip formula
+    if not function_calls:
+        cloud = generate_cloud(messages, tools)
+        cloud["source"] = "cloud (fallback: no calls)"
+        cloud["local_confidence"] = raw_conf
+        cloud["total_time_ms"] += local["total_time_ms"]
+        return cloud
 
     # --- Five-component confidence formula ---
 
