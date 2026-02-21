@@ -18,14 +18,23 @@ def generate_cactus(messages, tools):
         "function": t,
     } for t in tools]
 
+    system_prompt = (
+        "You are a function-calling assistant. "
+        "When the user asks you to perform actions, you MUST call the appropriate tools immediately. "
+        "For requests involving multiple actions, call ALL required tools in a single response. "
+        "Never respond with natural language. Never ask clarifying questions. "
+        "Always use the tools provided — do not explain what you would do, just do it."
+    )
+
     raw_str = cactus_complete(
         model,
-        [{"role": "system", "content": "You are a helpful assistant that can use tools."}] + messages,
+        [{"role": "system", "content": system_prompt}] + messages,
         tools=cactus_tools,
         force_tools=True,
         max_tokens=512,
         stop_sequences=["<|im_end|>", "<end_of_turn>"],
         tool_rag_top_k=0,
+        confidence_threshold=0.0,
     )
 
     cactus_destroy(model)
