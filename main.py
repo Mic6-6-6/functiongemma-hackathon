@@ -94,11 +94,10 @@ def generate_cloud(messages, tools):
     }
 
 
-def generate_hybrid(messages, tools, confidence_threshold=0.99):
+def generate_hybrid(messages, tools):
     """Baseline hybrid inference strategy; fall back to cloud if Cactus Confidence is below threshold."""
-    local = generate_cactus(messages, tools)
-
-    if local["confidence"] >= confidence_threshold:
+    local = generate_cactus(messages, tools) #Local is the response JSON
+    if not local["fallback"]:
         local["source"] = "on-device"
         return local
 
