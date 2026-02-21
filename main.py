@@ -18,9 +18,10 @@ def generate_cactus(messages, tools, confidence_threshold=0.7):
         [{"role": "system", "content": "You are a helpful assistant that can use tools."}] + messages,
         tools=tools,
         force_tools=True,
-        max_tokens=256,
+        max_tokens=512,
         stop_sequences=["<|im_end|>", "<end_of_turn>"],
         confidence_threshold=confidence_threshold,
+        tool_rag_top_k=0,
     )
 
     cactus_destroy(model)
